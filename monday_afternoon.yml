@@ -1,0 +1,16 @@
+---
+- name: After lunch special
+  hosts: planetexpress  # this our target described by our inventory
+  gather_facts: false   # not needed for our playbook
+
+  tasks:
+  - name: Create afterlunch.txt in the remote user's home directory
+    ansible.builtin.copy:
+      content: "after lunch special\n"
+      dest: "~/afterlunch.txt"
+
+  - name: Clone the API Quest repository
+    ansible.builtin.git:
+      repo: "https://github.com/rzfeeser/api-quest.git"
+      dest: "~/api-quest"
+      version: main

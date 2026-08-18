@@ -1,0 +1,20 @@
+---
+- name: Ansible make omdbapi call
+  hosts: localhost   # this is a MULTIPLIER (how many copies of the playbook should we run?)
+  connection: ansible.builtin.local   # we aren't going anywhere! The uri module sends HTTP messages
+  gather_facts: false
+
+  vars:
+    ak: abc123   # api key
+
+
+  tasks:
+    - name: make api call to omdbapi.com
+      ansible.builtin.uri:
+        method: GET   # this is the HTTP message to send
+        url: "https://omdbapi.com/?i=tt0111987&apikey={{ ak }}"
+      register: jsonresults   # save everything in here
+
+    - name: display results
+      ansible.builtin.debug:   # print this out...
+        var: jsonresults.json

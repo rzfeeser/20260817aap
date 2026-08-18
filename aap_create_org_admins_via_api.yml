@@ -1,0 +1,67 @@
+---
+- name: Create AAP users via REST API and grant Org Admin
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    controller_host: "https://aap-ded9a488-8de9-4050-a71f-cb0e8f3f83bb.live.alpha.alta3.com"    # update
+    validate_certs: true
+
+    controller_username: "admin"
+    controller_password: "{{ lookup('env', 'AAP_ADMIN_PASSWORD') }}"
+    controller_token: "567TA20VixskHndvntD7chPaIryOKB"                                          # update
+
+    target_org_name: "student_org"
+
+    user_first_name: ""
+    user_last_name: ""
+    user_email: ""
+    user_password: "alta3"
+
+    student_usernames: "{{ query('sequence', 'start=6 end=12 format=student%02d') }}"
+
+  tasks:
+    - name: Build API headers
+      ansible.builtin.set_fact:
+        api_headers: >-
+          {{
+            (controller_token | default('') | length > 0)
+            | ternary(
+                {
+                  'Content-Type': 'application/json',
+                  'Authorization': 'Bearer ' ~ controller_token
+                },
+                {
+                  'Content-Type': 'application/json'
+                }
+              )
+          }}
+
+    - name: Obtain auth token when using basic auth
+      ansible.builtin.uri:
+        url: "{{ controller_host }}/api/controller/v2/tokens/"
+        method: POST
+        body_format: json
+        user: "{{ controller_username }}"
+        password: "{{ controller_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ validate_certs }}"
+        body: {}
+        status_code: [201]
+      register: token_resp
+      when: controller_token | length == 0
+
+    - name: Set bearer headers from token
+      ansible.builtin.set_fact:
+        api_headers:
+          Content-Type: "application/json"
+          Authorization: "Bearer {{ token_resp.json.token }}"
+      when: controller_token | length == 0
+
+    - name: Create student users and grant Org Admin
+      ansible.builtin.include_tasks: tasks/aap_create_org_admin_user.yml
+      loop: "{{ student_usernames }}"
+      loop_control:
+        label: "{{ item }}"
+      vars:
+        user_username: "{{ item }}"
