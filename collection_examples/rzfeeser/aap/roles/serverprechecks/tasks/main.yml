@@ -1,0 +1,35 @@
+---
+- name: Ensure OS is Debian or Ubuntu
+  ansible.builtin.assert:
+    that:
+      #- ansible_distribution == "Debian" or ansible_distribution == "Ubuntu"
+      - ansible_facts.distribution == "Debian" or ansible_facts.distribution == "Ubuntu"
+    fail_msg: "This host is {{ ansible_distribution }}. Only Debian and Ubuntu are allowed."
+    success_msg: "Host OS is supported."
+
+
+# I want to ensure that the target systems have X amount of RAM
+- name: Fail if this machine lacks sufficient RAM
+  ansible.builtin.assert:
+    that:
+      - ansible_memtotal_mb >= 10
+      # ansible_facts.memtotal_mb >= 10
+    fail_msg: >
+      This machine does not have sufficient RAM to run Wednesday morning review.
+      Required RAM is 10 MB but this machine only has {{ ansible_memtotal_mb }} MB.
+
+
+# I want to ensure that the target system has N cores available
+- name: Ensure that the system has at least 2 cores
+  ansible.builtin.assert:
+    that:
+      - ansible_processor_cores > = 2
+    fail_msg: "This system only has {{ ansible_processor_cores }} when 2 or more are required"
+
+
+# I want to ensure that I am not logged in as root
+- name: Ensure remote user is non root
+  ansible.builtin.assert:
+    that:
+      - ansible_user_uid != 0
+    fail_msg: 'the remote user should be a non root user'

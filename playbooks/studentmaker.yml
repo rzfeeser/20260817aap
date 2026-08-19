@@ -1,0 +1,201 @@
+# playbooks/aap_create_org_admin_via_api.yml
+---
+- name: Create AAP user via REST API and grant Org Admin
+  hosts: localhost
+  gather_facts: false
+  connection: ansible.builtin.local
+
+  vars:
+    # === Controller connectivity ===
+    controller_host: "https://aap-ded9a488-8de9-4050-a71f-cb0e8f3f83bb.live.alpha.alta3.com"
+    validate_certs: true
+
+    # Choose ONE auth method:
+    # (A) Basic auth:
+    controller_username: "admin"
+    controller_password: "{{ lookup('env', 'AAP_ADMIN_PASSWORD') }}"
+    # (B) OR Bearer token:
+    controller_token: "LxjWMmjFSJCieyIBsGrlNP61A4lpBL"   # e.g., set via env and pass -e controller_token=$TOKEN
+
+    # === Target organization & user ===
+    target_org_name: "student_org"
+
+    user_username: "student02"
+    user_first_name: ""
+    user_last_name: ""
+    user_email: ""
+    user_password: "alta3"          # Optional: you can omit and trigger reset workflow via UI/email
+
+  # Helper to build headers depending on auth choice
+  vars_prompt: []
+
+  tasks:
+    - name: Build API headers (basic or bearer)
+      #no_log: true
+      set_fact:
+        api_headers: >-
+          {{
+            (controller_token | default('') | length > 0)
+            | ternary(
+                { 'Content-Type': 'application/json',
+                  'Authorization': 'Bearer ' ~ controller_token },
+                { 'Content-Type': 'application/json' }
+              )
+          }}
+
+    - name: Obtain auth token (only when using basic auth)
+      #no_log: true
+      when: controller_token | length == 0
+      ansible.builtin.uri:
+        url: "{{ controller_host }}/api/controller/v2/tokens/"
+        method: POST
+        body_format: json
+        user: "{{ controller_username }}"
+        password: "{{ controller_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ validate_certs }}"
+        body: {}
+        status_code: [201]
+      register: token_resp
+
+    - name: Set bearer headers from token (basic-auth path)
+      #no_log: true
+      when: controller_token | length == 0
+      set_fact:
+        api_headers:
+          Content-Type: "application/json"
+          Authorization: "Bearer {{ token_resp.json.token }}"
+
+    # --- USERS ---
+    - name: Lookup user by username
+      ansible.builtin.uri:
+        url: "{{ controller_host }}/api/gateway/v1/users/?username={{ user_username | urlencode }}"
+        method: GET
+        headers: "{{ api_headers }}"
+        validate_certs: "{{ validate_certs }}"
+        status_code: [200]
+      register: user_query
+
+    - name: Create user if not exists
+      #no_log: true
+      when: (user_query.json.count | default(0)) == 0
+      ansible.builtin.uri:
+        url: "{{ controller_host }}/api/gateway/v1/users/"
+        method: POST
+        headers: "{{ api_headers }}"
+        validate_certs: "{{ validate_certs }}"
+        body_format: json
+        body:
+          username: "{{ user_username }}"
+          first_name: "{{ user_first_name }}"
+          last_name: "{{ user_last_name }}"
+          email: "{{ user_email }}"
+          password: "{{ user_password }}"
+        status_code: [201]
+      register: user_create
+
+    - name: Determine user id
+      set_fact:
+        user_id: >-
+          {{
+            (user_query.json.results[0].id)
+            if (user_query.json.count | default(0)) > 0
+            else (user_create.json.id)
+          }}
+
+    # --- ORGANIZATION ---
+    - name: Lookup organization by name
+      ansible.builtin.uri:
+        url: "{{ controller_host }}/api/gateway/v1/organizations/?name={{ target_org_name | urlencode }}"
+        method: GET
+        headers: "{{ api_headers }}"
+        validate_certs: "{{ validate_certs }}"
+        status_code: [200]
+      register: org_query
+
+    - name: Fail if organization not found
+      ansible.builtin.fail:
+        msg: "Organization '{{ target_org_name }}' not found in Controller"
+      when: (org_query.json.count | default(0)) == 0
+
+    - name: Set org id
+      set_fact:
+        org_id: "{{ org_query.json.results[0].id }}"
+
+    # --- Ensure membership: /organizations/{id}/users/ POST {id: user_id}
+    - name: Check if user is already member of the organization
+      ansible.builtin.uri:
+        url: "{{ controller_host }}/api/gateway/v1/organizations/{{ org_id }}/users/?id={{ user_id }}"
+        method: GET
+        headers: "{{ api_headers }}"
+        validate_certs: "{{ validate_certs }}"
+        status_code: [200]
+      register: org_user_query
+
+    - name: Add User Debug
+      when: (org_user_query.json.count | default(0)) == 0
+      ansible.builtin.debug:
+        msg:
+          - "Adding user to Org"
+          - "User id: {{ user_id }}"
+          - "Org id:  {{ org_id }}"
+
+    - name: Add user to organization
+      when: (org_user_query.json.count | default(0)) == 0
+      ansible.builtin.uri:
+        url: "{{ controller_host }}/api/gateway/v1/organizations/{{ org_id }}/users/associate/"
+        method: POST
+        headers: "{{ api_headers }}"
+        validate_certs: "{{ validate_certs }}"
+        body_format: json
+        #body: "{{ {'id': user_id | int} | to_json }}"
+        body: "{{ {'instances': instances} | to_json }}"
+        status_code: [204]
+      vars:
+        instances:
+          - "{{user_id|int}}"
+
+    # --- Grant Org Admin role ---
+
+    # Check if user already has the role:
+    - name: Check if user already holds Org Admin
+      ansible.builtin.uri:
+        url: "{{ controller_host }}/api/gateway/v1/organizations/{{ org_id }}/admins/?id={{ user_id }}"
+        method: GET
+        headers: "{{ api_headers }}"
+        validate_certs: "{{ validate_certs }}"
+        status_code: [200]
+      register: role_user_query
+
+    # Grant role: 
+    - name: Grant Org Admin to user
+      when: (role_user_query.json.count | default(0)) == 0
+      ansible.builtin.uri:
+        url: "{{ controller_host }}/api/gateway/v1/organizations/{{ org_id }}/admins/associate/"
+        method: POST
+        headers: "{{ api_headers }}"
+        validate_certs: "{{ validate_certs }}"
+        body_format: json
+        #body: "{{ {'id': user_id | int} | to_json }}"
+        body: "{{ {'instances': instances} | to_json }}"
+        status_code: [204]
+      vars:
+        instances:
+          - "{{user_id|int}}"
+
+    - name: Summary
+      when: (role_user_query.json.count | default(0))==0
+      ansible.builtin.debug:
+        msg:
+          - "User id: {{ user_id }}"
+          - "Org id:  {{ org_id }}"
+          - "Already in Admin Role"
+
+    - name: Summary
+      when: (role_user_query.json.count | default(0)) > 0
+      ansible.builtin.debug:
+        msg:
+          - "User id: {{ user_id }}"
+          - "Org id:  {{ org_id }}"
+          - "Successfully added to Org Admin"
+

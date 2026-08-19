@@ -1,0 +1,32 @@
+---
+- name: Check common services on Planet Express
+  hosts: planetexpress
+  become: true
+  gather_facts: false
+  connection: ansible.builtin.ssh
+
+  tasks:
+    - name: Gather service information
+      ansible.builtin.service_facts:
+
+        #     - name: Check status of each service
+        #       ansible.builtin.debug:
+        #          var: item
+        #          verbosity: 2
+        #       with_dict: "{{ ansible_facts.services }}"
+        # 
+        #     - name: Check status of each service
+        #       ansible.builtin.debug:
+        #         msg: "{{ item.key }} is currently: {{ item.value.state }}"
+        #         verbosity: 2
+        #       with_dict: "{{ ansible_facts.services }}"
+
+    - name: Add a line to a file if the file does not exist, without passing regexp
+      ansible.builtin.lineinfile:
+        path: "./services-run-on-{{ inventory_hostname }}.txt"
+        line: "{{ now() }} - {{ item.key }} is currently: {{ item.value.state }}"
+        create: yes
+      with_dict: "{{ ansible_facts.services }}"
+      delegate_to: localhost
+      connection: ansible.builtin.local
+

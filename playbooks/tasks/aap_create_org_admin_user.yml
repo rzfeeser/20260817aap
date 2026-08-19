@@ -1,0 +1,101 @@
+---
+- name: Lookup user by username
+  ansible.builtin.uri:
+    url: "{{ controller_host }}/api/gateway/v1/users/?username={{ user_username | urlencode }}"
+    method: GET
+    headers: "{{ api_headers }}"
+    validate_certs: "{{ validate_certs }}"
+    status_code: [200]
+  register: user_query
+
+- name: Create user if not exists
+  ansible.builtin.uri:
+    url: "{{ controller_host }}/api/gateway/v1/users/"
+    method: POST
+    headers: "{{ api_headers }}"
+    validate_certs: "{{ validate_certs }}"
+    body_format: json
+    body:
+      username: "{{ user_username }}"
+      first_name: "{{ user_first_name }}"
+      last_name: "{{ user_last_name }}"
+      email: "{{ user_email }}"
+      password: "{{ user_password }}"
+    status_code: [201]
+  register: user_create
+  when: (user_query.json.count | default(0)) == 0
+
+- name: Determine user id
+  ansible.builtin.set_fact:
+    user_id: >-
+      {{
+        user_query.json.results[0].id
+        if (user_query.json.count | default(0)) > 0
+        else user_create.json.id
+      }}
+
+- name: Lookup organization by name
+  ansible.builtin.uri:
+    url: "{{ controller_host }}/api/gateway/v1/organizations/?name={{ target_org_name | urlencode }}"
+    method: GET
+    headers: "{{ api_headers }}"
+    validate_certs: "{{ validate_certs }}"
+    status_code: [200]
+  register: org_query
+
+- name: Fail if organization not found
+  ansible.builtin.fail:
+    msg: "Organization '{{ target_org_name }}' not found in Controller"
+  when: (org_query.json.count | default(0)) == 0
+
+- name: Set org id
+  ansible.builtin.set_fact:
+    org_id: "{{ org_query.json.results[0].id }}"
+
+- name: Check if user is already member of the organization
+  ansible.builtin.uri:
+    url: "{{ controller_host }}/api/gateway/v1/organizations/{{ org_id }}/users/?id={{ user_id }}"
+    method: GET
+    headers: "{{ api_headers }}"
+    validate_certs: "{{ validate_certs }}"
+    status_code: [200]
+  register: org_user_query
+
+- name: Add user to organization
+  ansible.builtin.uri:
+    url: "{{ controller_host }}/api/gateway/v1/organizations/{{ org_id }}/users/associate/"
+    method: POST
+    headers: "{{ api_headers }}"
+    validate_certs: "{{ validate_certs }}"
+    body_format: json
+    body: "{{ {'instances': [user_id | int]} | to_json }}"
+    status_code: [204]
+  when: (org_user_query.json.count | default(0)) == 0
+
+- name: Check if user already holds Org Admin
+  ansible.builtin.uri:
+    url: "{{ controller_host }}/api/gateway/v1/organizations/{{ org_id }}/admins/?id={{ user_id }}"
+    method: GET
+    headers: "{{ api_headers }}"
+    validate_certs: "{{ validate_certs }}"
+    status_code: [200]
+  register: role_user_query
+
+- name: Grant Org Admin to user
+  ansible.builtin.uri:
+    url: "{{ controller_host }}/api/gateway/v1/organizations/{{ org_id }}/admins/associate/"
+    method: POST
+    headers: "{{ api_headers }}"
+    validate_certs: "{{ validate_certs }}"
+    body_format: json
+    body: "{{ {'instances': [user_id | int]} | to_json }}"
+    status_code: [204]
+  when: (role_user_query.json.count | default(0)) == 0
+
+- name: Summary
+  ansible.builtin.debug:
+    msg:
+      - "Username: {{ user_username }}"
+      - "User id: {{ user_id }}"
+      - "Org id: {{ org_id }}"
+      - "Org Admin already present: {{ (role_user_query.json.count | default(0)) > 0 }}"

@@ -1,0 +1,38 @@
+---
+- name: common linux tasks
+  hosts: planetexpress
+  gather_facts: true
+  connection: ansible.builtin.ssh   # global setting, easily overridden per host basis in the inventory
+  
+  roles:
+    - serverprechecks # this example examples a roles/serverprechecks/ folder to exist locally
+
+
+  tasks:
+### Cha cha cha chaaaannngeeessss
+
+    - name: Create i-was-here directory
+      ansible.builtin.file:
+        path: /tmp/i-was-here/
+        state: directory    # directory, file, absent
+        mode: "0755"  # owner group others
+                      # r = 4
+                      # w = 2
+                      # x = 1
+                      #
+                      # 0 ---
+                      # 1 --x
+                      # 5 r-x
+                      # 7 rwx
+
+    - name: Create a file
+      ansible.builtin.file:
+        path: /tmp/i-was-here/zach.txt
+        state: touch   # directory, file, absent
+
+
+    - name: Create a text file
+      ansible.builtin.copy:
+        content: "Ansible was here on {{ now() }}"
+        dest: /tmp/i-was-here/ansible.txt
+        mode: "0644"
