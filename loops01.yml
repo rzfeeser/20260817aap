@@ -1,0 +1,28 @@
+---
+- name: Loop over dictionaries
+  hosts: planetexpress
+  become: true
+
+  vars:
+    futuramadata:
+        - name: fry
+          comment: Philip J. Fry
+          shell: /bin/bash
+
+        - name: bender
+          comment: Bender Bending Rodriguez
+          shell: /bin/bash
+
+        - name: zoidberg
+          comment: Dr. John Zoidberg
+          shell: /bin/sh
+
+  tasks:
+
+    - name: Create several users
+      ansible.builtin.user:
+        name: "{{ item.name }}"
+        comment: "{{ item.comment }}"
+        shell: "{{ item.shell }}"
+        state: present
+      loop: "{{ futuramadata }}"
