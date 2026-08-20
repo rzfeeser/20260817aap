@@ -1,6 +1,6 @@
 # Ansible Automation Platform examples
 
-This repository contains classroom examples for learning Ansible and Red Hat Ansible Automation Platform (AAP). It progresses from standalone playbooks to task includes, reusable roles, collection packaging, REST API automation, and an application lifecycle solution.
+Repository contains classroom examples for learning Ansible and Red Hat Ansible Automation Platform (AAP). It progresses from standalone playbooks to task includes, reusable roles, collection packaging, REST API automation, and an application lifecycle solution.
 
 ## Repository structure
 
